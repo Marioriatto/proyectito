@@ -1,4 +1,0 @@
-hola desde vscodedev
-cambio en main
-hola desde vscode
-conflicto GGG
