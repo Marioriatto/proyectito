@@ -1,3 +1,5 @@
 <p>
-  <h1>proyectito epicardo</h1>
+  <h1 align = "center" >
+    proyectito epicardo
+  </h1>
 </p>
