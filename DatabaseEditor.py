@@ -120,7 +120,7 @@ class DatabaseEditor:
             lambda values: self.cursor.execute("INSERT INTO rooms (name, type, capacity) VALUES (?, ?, ?)", values),
             lambda: self.cursor.execute("SELECT id, name, type, capacity FROM rooms"),
             lambda rid: self.cursor.execute("DELETE FROM rooms WHERE id=?", (rid,)),
-            custom_widgets={1: ttk.Combobox, 'choices': ["Standard", "Lab", "Auditorium"]}
+            custom_widgets={1: ttk.Combobox, 'choices': ["standard", "lab", "auditorium"]}
         )
 
     def init_teachers_tab(self):
@@ -215,14 +215,41 @@ class DatabaseEditor:
         refresh_table()
 
     def init_timeslots_tab(self):
-        self.init_table_editor(
-            "Timeslots",
-            ["Day", "Slot"],
-            lambda values: self.cursor.execute("INSERT INTO timeslots (day, slot) VALUES (?, ?)", values),
-            lambda: self.cursor.execute("SELECT id, day, slot FROM timeslots"),
-            lambda rid: self.cursor.execute("DELETE FROM timeslots WHERE id=?", (rid,)),
-            custom_widgets={0: ttk.Combobox, 1: ttk.Combobox, 'choices': {0: list(range(5)), 1: list(range(6))}}
-        )
+        frame = self.tabs["Timeslots"]
+
+        ttk.Label(frame, text="Timeslots (Day 0–4, Slot 0–5)").pack(pady=5)
+
+        ttk.Button(frame, text="Generate Default Timeslots", command=self.generate_default_timeslots).pack(pady=5)
+
+        table = ttk.Treeview(frame, columns=(0, 1, 2), show="headings", height=15)
+        table.pack(fill=tk.BOTH, expand=True)
+
+        table.heading(0, text="ID")
+        table.heading(1, text="Day")
+        table.heading(2, text="Slot")
+
+        def refresh_table():
+            for row in table.get_children():
+                table.delete(row)
+            self.cursor.execute("SELECT id, day, slot FROM timeslots ORDER BY day, slot")
+            for row in self.cursor.fetchall():
+                table.insert("", "end", values=row)
+
+        self.timeslot_table_refresh = refresh_table  # Save for use after button press
+        refresh_table()
+    
+    def generate_default_timeslots(self):
+        try:
+            self.cursor.execute("DELETE FROM timeslots")
+            for day in range(5):
+                for slot in range(6):
+                    self.cursor.execute("INSERT INTO timeslots (day, slot) VALUES (?, ?)", (day, slot))
+            self.conn.commit()
+            self.timeslot_table_refresh()
+            messagebox.showinfo("Success", "Timeslots reset to Monday–Friday with 6 slots per day.")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to generate timeslots: {e}")
+
 
     def init_table_editor(self, tab_name, fields, insert_callback, select_callback, delete_callback, custom_widgets=None):
         frame = self.tabs[tab_name]
