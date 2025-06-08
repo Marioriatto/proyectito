@@ -1,5 +1,7 @@
 <p>
   <h1 align = "center" >
-    proyectito epicardo
+    schedule solver
   </h1>
+  <br>
+
 </p>
