@@ -3,16 +3,16 @@ from tkinter import ttk, filedialog, messagebox
 import sqlite3
 import os
 
+VALID_ROOM_TYPES = {"standard", "lab", "auditorium"}
+
 class DatabaseEditor:
     def __init__(self, root):
         self.root = root
         self.root.title("Database Editor")
         self.root.geometry("900x600")
-
         self.db_path = None
         self.conn = None
         self.cursor = None
-
         self.init_ui()
 
     def init_ui(self):
@@ -79,18 +79,73 @@ class DatabaseEditor:
             FOREIGN KEY(room_id) REFERENCES rooms(id),
             FOREIGN KEY(timeslot_id) REFERENCES timeslots(id)
         );
+
         CREATE INDEX IF NOT EXISTS idx_group_schedule_group ON group_schedule(group_id);
         CREATE INDEX IF NOT EXISTS idx_group_schedule_room ON group_schedule(room_id);
         CREATE INDEX IF NOT EXISTS idx_group_schedule_timeslot ON group_schedule(timeslot_id);
-        CREATE TRIGGER IF NOT EXISTS Validate 
-            BEFORE INSERT ON groups FOR EACH ROW 
-            WHEN (SELECT COUNT(*) FROM groups WHERE subject_id = new.subject_id and teacher_id = new.teacher_id) > 0
-                BEGIN
-                    SELECT RAISE(ABORT, 'You are trying to insert a duplicate!');
-                END
+
+        -- Triggers to prevent empty or invalid data
+        CREATE TRIGGER IF NOT EXISTS trg_no_empty_rooms
+        BEFORE INSERT ON rooms
+        WHEN NEW.name = '' OR NEW.type = '' OR NEW.capacity IS NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'Room fields must not be empty.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_valid_room_type
+        BEFORE INSERT ON rooms
+        WHEN LOWER(NEW.type) NOT IN ('standard', 'lab', 'auditorium')
+        BEGIN
+            SELECT RAISE(ABORT, 'Invalid room type. Must be standard, lab, or auditorium.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_no_duplicate_rooms
+        BEFORE INSERT ON rooms
+        WHEN EXISTS (SELECT 1 FROM rooms WHERE name = NEW.name AND type = NEW.type AND capacity = NEW.capacity)
+        BEGIN
+            SELECT RAISE(ABORT, 'Duplicate room entry.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_no_empty_teacher
+        BEFORE INSERT ON teachers
+        WHEN NEW.name = ''
+        BEGIN
+            SELECT RAISE(ABORT, 'Teacher name must not be empty.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_no_duplicate_teacher
+        BEFORE INSERT ON teachers
+        WHEN EXISTS (SELECT 1 FROM teachers WHERE name = NEW.name)
+        BEGIN
+            SELECT RAISE(ABORT, 'Duplicate teacher.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_no_empty_subject
+        BEFORE INSERT ON subjects
+        WHEN NEW.name = ''
+        BEGIN
+            SELECT RAISE(ABORT, 'Subject name must not be empty.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_no_duplicate_subject
+        BEFORE INSERT ON subjects
+        WHEN EXISTS (SELECT 1 FROM subjects WHERE name = NEW.name AND requires_lab = NEW.requires_lab)
+        BEGIN
+            SELECT RAISE(ABORT, 'Duplicate subject.');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS trg_duplicate_group
+        BEFORE INSERT ON groups
+        WHEN EXISTS (
+            SELECT 1 FROM groups
+            WHERE subject_id = NEW.subject_id AND teacher_id = NEW.teacher_id
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'Duplicate group (same teacher and subject).');
+        END;
         """)
         self.conn.commit()
-        messagebox.showinfo("Success", "Database created successfully.")
+        messagebox.showinfo("Success", "Database created with triggers.")
         self.populate_tabs()
 
     def open_database(self):
@@ -117,11 +172,19 @@ class DatabaseEditor:
         self.init_table_editor(
             "Rooms",
             ["Name", "Type", "Capacity"],
-            lambda values: self.cursor.execute("INSERT INTO rooms (name, type, capacity) VALUES (?, ?, ?)", values),
+            self.insert_room,
             lambda: self.cursor.execute("SELECT id, name, type, capacity FROM rooms"),
             lambda rid: self.cursor.execute("DELETE FROM rooms WHERE id=?", (rid,)),
             custom_widgets={1: ttk.Combobox, 'choices': ["standard", "lab", "auditorium"]}
         )
+
+    def insert_room(self, values):
+        name, type_, capacity = values
+        if not name.strip() or not type_.strip() or not capacity.strip():
+            raise ValueError("All fields must be filled.")
+        if type_.lower() not in VALID_ROOM_TYPES:
+            raise ValueError("Invalid room type.")
+        self.cursor.execute("INSERT INTO rooms (name, type, capacity) VALUES (?, ?, ?)", (name, type_, int(capacity)))
 
     def init_teachers_tab(self):
         self.init_table_editor(
@@ -171,29 +234,23 @@ class DatabaseEditor:
             try:
                 subject_id = subject_map[subject_var.get()]
                 teacher_id = teacher_map[teacher_var.get()]
-                try:
-                    count = int(count_var.get())
-                except Exception:
-                    count = 0
-                self.cursor.execute("INSERT INTO groups (subject_id, teacher_id, student_count) VALUES (?, ?, ?)",
-                                    (subject_id, teacher_id, count))
+                count = int(count_var.get())
+                if count <= 0:
+                    raise ValueError("Student count must be positive.")
+                self.cursor.execute(
+                    "INSERT INTO groups (subject_id, teacher_id, student_count) VALUES (?, ?, ?)",
+                    (subject_id, teacher_id, count))
                 self.conn.commit()
                 refresh_table()
             except Exception as e:
                 messagebox.showerror("Insert Error", str(e))
 
         def delete_selected():
-            selected = table.selection()
-            if not selected:
-                return
-            try:
-                for sel in selected:
-                    rid = table.item(sel)["values"][0]
-                    self.cursor.execute("DELETE FROM groups WHERE id=?", (rid,))
-                self.conn.commit()
-                refresh_table()
-            except Exception as e:
-                messagebox.showerror("Delete Error", str(e))
+            for sel in table.selection():
+                rid = table.item(sel)["values"][0]
+                self.cursor.execute("DELETE FROM groups WHERE id=?", (rid,))
+            self.conn.commit()
+            refresh_table()
 
         ttk.Button(frame, text="Add", command=add_group).grid(row=2, column=0, pady=5)
         ttk.Button(frame, text="Delete", command=delete_selected).grid(row=2, column=1, pady=5)
@@ -218,12 +275,10 @@ class DatabaseEditor:
         frame = self.tabs["Timeslots"]
 
         ttk.Label(frame, text="Timeslots (Day 0–4, Slot 0–5)").pack(pady=5)
-
         ttk.Button(frame, text="Generate Default Timeslots", command=self.generate_default_timeslots).pack(pady=5)
 
         table = ttk.Treeview(frame, columns=(0, 1, 2), show="headings", height=15)
         table.pack(fill=tk.BOTH, expand=True)
-
         table.heading(0, text="ID")
         table.heading(1, text="Day")
         table.heading(2, text="Slot")
@@ -235,9 +290,9 @@ class DatabaseEditor:
             for row in self.cursor.fetchall():
                 table.insert("", "end", values=row)
 
-        self.timeslot_table_refresh = refresh_table  # Save for use after button press
+        self.timeslot_table_refresh = refresh_table
         refresh_table()
-    
+
     def generate_default_timeslots(self):
         try:
             self.cursor.execute("DELETE FROM timeslots")
@@ -246,16 +301,13 @@ class DatabaseEditor:
                     self.cursor.execute("INSERT INTO timeslots (day, slot) VALUES (?, ?)", (day, slot))
             self.conn.commit()
             self.timeslot_table_refresh()
-            messagebox.showinfo("Success", "Timeslots reset to Monday–Friday with 6 slots per day.")
+            messagebox.showinfo("Success", "Timeslots reset.")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to generate timeslots: {e}")
 
-
     def init_table_editor(self, tab_name, fields, insert_callback, select_callback, delete_callback, custom_widgets=None):
         frame = self.tabs[tab_name]
-
         entry_vars = []
-        entries = []
         for idx, field in enumerate(fields):
             ttk.Label(frame, text=field).grid(row=0, column=idx)
             var = tk.StringVar()
@@ -267,11 +319,12 @@ class DatabaseEditor:
                 widget = widget_class(frame, textvariable=var)
             widget.grid(row=1, column=idx)
             entry_vars.append(var)
-            entries.append(widget)
 
         def add_entry():
             try:
-                values = tuple(var.get() for var in entry_vars)
+                values = tuple(var.get().strip() for var in entry_vars)
+                if any(val == "" for val in values):
+                    raise ValueError("No field can be empty.")
                 insert_callback(values)
                 self.conn.commit()
                 refresh_table()
@@ -279,24 +332,17 @@ class DatabaseEditor:
                 messagebox.showerror("Insert Error", str(e))
 
         def delete_selected():
-            selected = table.selection()
-            if not selected:
-                return
-            try:
-                for sel in selected:
-                    rid = table.item(sel)["values"][0]
-                    delete_callback(rid)
-                self.conn.commit()
-                refresh_table()
-            except Exception as e:
-                messagebox.showerror("Delete Error", str(e))
+            for sel in table.selection():
+                rid = table.item(sel)["values"][0]
+                delete_callback(rid)
+            self.conn.commit()
+            refresh_table()
 
         ttk.Button(frame, text="Add", command=add_entry).grid(row=2, column=0, pady=5)
         ttk.Button(frame, text="Delete", command=delete_selected).grid(row=2, column=1, pady=5)
 
         table = ttk.Treeview(frame, columns=list(range(len(fields)+1)), show="headings", height=15)
         table.grid(row=3, column=0, columnspan=len(fields))
-
         headers = ["ID"] + fields
         for i, header in enumerate(headers):
             table.heading(i, text=header)
