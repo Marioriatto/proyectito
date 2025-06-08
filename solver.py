@@ -1,4 +1,6 @@
 import sqlite3
+from collections import defaultdict
+import copy
 
 def run_solver(db_path):
     conn = sqlite3.connect(db_path)
@@ -16,10 +18,8 @@ def run_solver(db_path):
 
     cursor.execute("SELECT id, requires_lab FROM subjects")
     subject_lab_map = {row[0]: row[1] for row in cursor.fetchall()}
-
     conn.close()
 
-    # Prepare structures
     group_data = {
         g[0]: {
             "subject_id": g[1],
@@ -40,6 +40,9 @@ def run_solver(db_path):
     }
 
     timeslot_ids = [t[0] for t in timeslots]
+    teacher_to_groups = defaultdict(set)
+    for gid, g in group_data.items():
+        teacher_to_groups[g["teacher_id"]].add(gid)
 
     # Build domains
     domains = {}
@@ -53,48 +56,94 @@ def run_solver(db_path):
                 continue
             for timeslot_id in timeslot_ids:
                 domain.append((room_id, timeslot_id))
-
         if not domain:
             reasons = []
             for room_id, room in room_data.items():
                 if g["student_count"] > room["capacity"]:
-                    reasons.append(f"Room {room['name']} too small ({room['capacity']} < {g['student_count']})")
+                    reasons.append(f"Room {room['name']} too small")
                 elif g["requires_lab"] and room["type"] != "lab":
                     reasons.append(f"Room {room['name']} not lab")
-            empty_domain_report.append(f"Group {group_id} has no valid assignment:\n  " + "\n  ".join(set(reasons)))
+            empty_domain_report.append(f"Group {group_id} has no valid domain:\n  " + "\n  ".join(set(reasons)))
         domains[group_id] = domain
 
     if empty_domain_report:
-        return "No feasible schedule found. Domain too narrow for some groups:\n\n" + "\n\n".join(empty_domain_report)
+        return "No feasible schedule found. Domain too narrow:\n\n" + "\n\n".join(empty_domain_report)
 
     assignment = {}
     conflict_log = []
 
-    def is_valid(group_id, room_id, timeslot_id):
+    def is_valid(group_id, room_id, timeslot_id, partial_assignment):
         teacher_id = group_data[group_id]["teacher_id"]
-        for other_gid, (r_id, t_id) in assignment.items():
+        for other_gid, (r_id, t_id) in partial_assignment.items():
             if t_id == timeslot_id:
                 if r_id == room_id:
-                    conflict_log.append(
-                        f"Room conflict at timeslot {t_id}: Room {room_id} is assigned to both group {group_id} and group {other_gid}"
-                    )
                     return False
                 if group_data[other_gid]["teacher_id"] == teacher_id:
-                    conflict_log.append(
-                        f"Teacher conflict at timeslot {t_id}: Teacher {teacher_id} is assigned to both group {group_id} and group {other_gid}"
-                    )
                     return False
         return True
 
-    def backtrack(index=0):
-        if index == len(groups):
+    def forward_check(domains, group_id, value, assignment):
+        room_id, timeslot_id = value
+        pruned = {}
+
+        for other_gid in domains:
+            if other_gid in assignment or other_gid == group_id:
+                continue
+            new_domain = []
+            for v in domains[other_gid]:
+                if v[1] == timeslot_id:
+                    # Same timeslot — check for teacher and room conflicts
+                    same_teacher = group_data[other_gid]["teacher_id"] == group_data[group_id]["teacher_id"]
+                    same_room = v[0] == room_id
+                    if same_teacher or same_room:
+                        continue
+                new_domain.append(v)
+            if not new_domain:
+                return None  # Dead end
+            pruned[other_gid] = domains[other_gid]
+            domains[other_gid] = new_domain
+        return pruned
+
+    def restore_domains(domains, pruned):
+        for gid in pruned:
+            domains[gid] = pruned[gid]
+
+    def select_unassigned_group(domains, assignment):
+        # MRV + Degree Heuristic
+        unassigned = [g for g in domains if g not in assignment]
+        mrv = sorted(unassigned, key=lambda g: (len(domains[g]), -len(teacher_to_groups[group_data[g]["teacher_id"]])))
+        return mrv[0] if mrv else None
+
+    def order_domain_values(group_id, domains, assignment):
+        # LCV: pick values that rule out the fewest values for others
+        value_counts = []
+        for value in domains[group_id]:
+            room_id, timeslot_id = value
+            conflicts = 0
+            for other_gid in domains:
+                if other_gid == group_id or other_gid in assignment:
+                    continue
+                for v in domains[other_gid]:
+                    if v[1] == timeslot_id:
+                        if v[0] == room_id or group_data[other_gid]["teacher_id"] == group_data[group_id]["teacher_id"]:
+                            conflicts += 1
+            value_counts.append((conflicts, value))
+        return [v for _, v in sorted(value_counts)]
+
+    def backtrack():
+        if len(assignment) == len(domains):
             return True
-        group_id = groups[index][0]
-        for room_id, timeslot_id in domains[group_id]:
-            if is_valid(group_id, room_id, timeslot_id):
-                assignment[group_id] = (room_id, timeslot_id)
-                if backtrack(index + 1):
-                    return True
+        group_id = select_unassigned_group(domains, assignment)
+        if group_id is None:
+            return False
+        for value in order_domain_values(group_id, domains, assignment):
+            if is_valid(group_id, *value, assignment):
+                assignment[group_id] = value
+                pruned = forward_check(domains, group_id, value, assignment)
+                if pruned is not None:
+                    if backtrack():
+                        return True
+                    restore_domains(domains, pruned)
                 del assignment[group_id]
         return False
 
@@ -112,7 +161,7 @@ def run_solver(db_path):
                 )
             conn.commit()
             conn.close()
-            return "Schedule successfully generated using backtracking."
+            return "Schedule successfully generated using backtracking + heuristics."
         except Exception as e:
             return f"Failed to save schedule: {e}"
     else:
