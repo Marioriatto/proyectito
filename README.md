@@ -12,11 +12,11 @@
     but most importantly it automates administrative tasks reducing worload stress and improving students satisfaction
   </h5>
   <br>
-  <h3>
+  <h3 align = "center">
     special features
   </h3>
   <br>
-  <h5>
+  <h5 align = "center">
     infers new information and updates heuristics to find errors earlier and reduce execution time creating a priority queue
   </h5>
 </p>
