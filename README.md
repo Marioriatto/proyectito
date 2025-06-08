@@ -6,7 +6,7 @@
   by using heuristics and backtracking this program finds a feasible schedule that satisfies all constraints
   but most importantly it automates administrative tasks reducing workload stress and improving students satisfaction
 </h5>
-<<br>
+<br>
 <h3 align="center">special features</h3>
 <br>
 <h5 align="center">
