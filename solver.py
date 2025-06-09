@@ -6,7 +6,7 @@ def run_solver(db_path):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Load data
+    # Load data to list of tuples
     cursor.execute("SELECT id, subject_id, teacher_id, student_count FROM groups")
     groups = cursor.fetchall()
 
@@ -19,7 +19,9 @@ def run_solver(db_path):
     cursor.execute("SELECT id, requires_lab FROM subjects")
     subject_lab_map = {row[0]: row[1] for row in cursor.fetchall()}
     conn.close()
-
+    
+    # Turn list of tuples into a dictionary for more clarity
+    
     group_data = {
         g[0]: {
             "subject_id": g[1],
@@ -47,7 +49,7 @@ def run_solver(db_path):
     for gid, g in group_data.items():
         teacher_to_groups[g["teacher_id"]].add(gid)
 
-    # Build domains
+    # Build domains by filtering any other entities according to the restrictions set
     domains = {}
     empty_domain_report = []
     for group_id, g in group_data.items():
@@ -69,6 +71,8 @@ def run_solver(db_path):
                     reasons.append(f"Room {room['name']} not lab")
             empty_domain_report.append(f"Group {group_id} has no valid domain:\n  " + "\n  ".join(set(reasons)))
         domains[group_id] = domain
+
+    # The domain is a set of restriction filtered edges for each group
 
     if empty_domain_report:
         return "No feasible schedule found. Domain too narrow:\n\n" + "\n\n".join(empty_domain_report)
