@@ -39,7 +39,10 @@ def run_solver(db_path):
         for r in rooms
     }
 
-    timeslot_ids = [t[0] for t in timeslots]
+    # Sort time slots by (day, slot) for chronological priority
+    timeslot_ordered = sorted(timeslots, key=lambda x: (x[1], x[2]))
+    timeslot_ids = [t[0] for t in timeslot_ordered]
+
     teacher_to_groups = defaultdict(set)
     for gid, g in group_data.items():
         teacher_to_groups[g["teacher_id"]].add(gid)
@@ -54,7 +57,8 @@ def run_solver(db_path):
                 continue
             if g["requires_lab"] and room["type"] != "lab":
                 continue
-            for timeslot_id in timeslot_ids:
+            for ts in timeslot_ordered:
+                timeslot_id = ts[0]
                 domain.append((room_id, timeslot_id))
         if not domain:
             reasons = []
@@ -92,7 +96,6 @@ def run_solver(db_path):
             new_domain = []
             for v in domains[other_gid]:
                 if v[1] == timeslot_id:
-                    # Same timeslot — check for teacher and room conflicts
                     same_teacher = group_data[other_gid]["teacher_id"] == group_data[group_id]["teacher_id"]
                     same_room = v[0] == room_id
                     if same_teacher or same_room:
@@ -115,7 +118,7 @@ def run_solver(db_path):
         return mrv[0] if mrv else None
 
     def order_domain_values(group_id, domains, assignment):
-        # LCV: pick values that rule out the fewest values for others
+        # LCV + Early time slot priority
         value_counts = []
         for value in domains[group_id]:
             room_id, timeslot_id = value
@@ -128,7 +131,9 @@ def run_solver(db_path):
                         if v[0] == room_id or group_data[other_gid]["teacher_id"] == group_data[group_id]["teacher_id"]:
                             conflicts += 1
             value_counts.append((conflicts, value))
-        return [v for _, v in sorted(value_counts)]
+
+        # Sort first by least conflicts, then by timeslot order (earlier first)
+        return [v for _, v in sorted(value_counts, key=lambda x: (x[0], timeslot_ids.index(x[1][1])))]
 
     def backtrack():
         if len(assignment) == len(domains):
@@ -161,7 +166,7 @@ def run_solver(db_path):
                 )
             conn.commit()
             conn.close()
-            return "Schedule successfully generated using backtracking + heuristics."
+            return "Schedule successfully generated using backtracking + heuristics (earliest times prioritized)."
         except Exception as e:
             return f"Failed to save schedule: {e}"
     else:

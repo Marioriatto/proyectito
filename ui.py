@@ -18,7 +18,7 @@ class ScheduleApp:
 
         self.db_path = None
 
-        #TreeView Main frame
+        # TreeView Main frame
         self.main_frame = ttk.Frame(root)
         self.main_frame.grid(row=0, column=0, sticky="nsew")
         self.main_frame.rowconfigure(0, weight=1)
@@ -69,13 +69,6 @@ class ScheduleApp:
         self.apply_button = ttk.Button(self.control_frame, text="Apply View", command=self.load_schedule)
         self.apply_button.grid(row=0, column=6, padx=10)
 
-        # Drag-n-drop setup
-        self.tree.bind("<ButtonPress-1>", self.start_drag)
-        self.tree.bind("<B1-Motion>", self.do_drag)
-        self.tree.bind("<ButtonRelease-1>", self.drop)
-
-        self.drag_data = {"item": None, "x": 0, "y": 0}
-
         self.init_empty_grid()
 
     def init_empty_grid(self):
@@ -112,7 +105,7 @@ class ScheduleApp:
             cursor = conn.cursor()
 
             base_query = '''
-            SELECT gs.rowid, g.id, r.name, s.name, t.name, ts.day, ts.slot
+            SELECT g.id, r.name, s.name, t.name, ts.day, ts.slot
             FROM group_schedule gs
             JOIN groups g ON gs.group_id = g.id
             JOIN rooms r ON gs.room_id = r.id
@@ -135,19 +128,19 @@ class ScheduleApp:
                 base_query += " WHERE r.name = ?"
                 params = (filter_value,)
 
-            schedule_grid = defaultdict(lambda: ["" for _ in range(6)])
-            self.schedule_map = {}
+            schedule_grid = defaultdict(lambda: defaultdict(list))
 
-            for row in cursor.execute(base_query, params):
-                rowid, group_id, room, subject, teacher, day, slot = row
-                display_text = f"Group {group_id}\nRoom: {room}\n{subject}\n{teacher}"
-                schedule_grid[day][slot] = display_text
-                self.schedule_map[(day, slot)] = rowid
+            for group_id, room, subject, teacher, day, slot in cursor.execute(base_query, params):
+                text = f"Group {group_id} ({subject})\n{teacher} @ {room}"
+                schedule_grid[day][slot].append(text)
 
             conn.close()
 
             for slot_index in range(6):
-                values = [schedule_grid[day][slot_index] for day in range(5)]
+                values = []
+                for day in range(5):
+                    entries = schedule_grid[day][slot_index]
+                    values.append("\n\n".join(entries) if entries else "")
                 self.tree.insert("", "end", iid=slot_index, values=values)
 
         except Exception as e:
@@ -226,55 +219,6 @@ class ScheduleApp:
         except Exception as e:
             messagebox.showerror("Launch Error", str(e))
 
-    def start_drag(self, event):
-        item = self.tree.identify_row(event.y)
-        col = self.tree.identify_column(event.x)
-        if item and col:
-            self.drag_data["item"] = item
-            self.drag_data["col"] = col
-
-    def do_drag(self, event):
-        pass
-
-    def drop(self, event):
-        if not self.db_path:
-            return
-
-        target_item = self.tree.identify_row(event.y)
-        target_col = self.tree.identify_column(event.x)
-        source_item = self.drag_data["item"]
-        source_col = self.drag_data["col"]
-
-        if target_item and source_item and target_col and source_col:
-            row_from = int(source_item)
-            row_to = int(target_item)
-            col_from = int(source_col.replace("#", "")) - 1
-            col_to = int(target_col.replace("#", "")) - 1
-
-            if (col_from, row_from) == (col_to, row_to):
-                return
-
-            if messagebox.askyesno("Confirm", f"Switch group in {self.tree['columns'][col_from]} slot {row_from+1} with {self.tree['columns'][col_to]} slot {row_to+1}?"):
-                try:
-                    conn = self.connect()
-                    cursor = conn.cursor()
-                    rowid_1 = self.schedule_map.get((col_from, row_from))
-                    rowid_2 = self.schedule_map.get((col_to, row_to))
-
-                    if rowid_1 and rowid_2:
-                        cursor.execute("SELECT group_id FROM group_schedule WHERE rowid = ?", (rowid_1,))
-                        group_1 = cursor.fetchone()[0]
-                        cursor.execute("SELECT group_id FROM group_schedule WHERE rowid = ?", (rowid_2,))
-                        group_2 = cursor.fetchone()[0]
-
-                        cursor.execute("UPDATE group_schedule SET group_id = ? WHERE rowid = ?", (group_2, rowid_1))
-                        cursor.execute("UPDATE group_schedule SET group_id = ? WHERE rowid = ?", (group_1, rowid_2))
-
-                        conn.commit()
-                    conn.close()
-                    self.load_schedule()
-                except Exception as e:
-                    messagebox.showerror("Swap Error", str(e))
 
 if __name__ == "__main__":
     root = tk.Tk()
