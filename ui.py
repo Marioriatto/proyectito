@@ -31,7 +31,7 @@ class ScheduleApp:
         style.configure("Treeview.Heading", font=("Arial", 10, "bold"))
 
         self.tree.grid(row=0, column=0, sticky="nsew")
-
+        
         # Scrollbars
         vsb = ttk.Scrollbar(self.main_frame, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(self.main_frame, orient="horizontal", command=self.tree.xview)
@@ -70,14 +70,19 @@ class ScheduleApp:
         self.apply_button.grid(row=0, column=6, padx=10)
 
         self.init_empty_grid()
-
+        
     def init_empty_grid(self):
+        self.drag_source = None
+        self.tree.bind("<ButtonPress-1>", self.on_drag_start)
+        self.tree.bind("<ButtonRelease-1>", self.on_drag_release)
         self.tree["columns"] = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         for col in self.tree["columns"]:
             self.tree.heading(col, text=col)
             self.tree.column(col, width=240, anchor="center")
         for slot_index in range(6):
             self.tree.insert("", "end", iid=slot_index, values=["" for _ in range(5)])
+        
+        
 
     def select_database(self):
         path = filedialog.askopenfilename(title="Select database", filetypes=[("SQLite DB", "*.db")])
@@ -219,6 +224,100 @@ class ScheduleApp:
         except Exception as e:
             messagebox.showerror("Launch Error", str(e))
 
+    def on_drag_start(self, event):
+        if self.view_type_var.get() == "Full Schedule":
+            return  # Disable drag in Full Schedule
+
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+
+        row_id = self.tree.identify_row(event.y)
+        col_id = self.tree.identify_column(event.x)
+        if row_id and col_id:
+            self.drag_source = (int(row_id), int(col_id[1:]) - 1)
+
+    def on_drag_release(self, event):
+        if not self.drag_source or self.view_type_var.get() == "Full Schedule":
+            return
+
+        region = self.tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+
+        target_row = self.tree.identify_row(event.y)
+        target_col = self.tree.identify_column(event.x)
+        if not target_row or not target_col:
+            return
+
+        source_slot, source_day = self.drag_source
+        target_slot = int(target_row)
+        target_day = int(target_col[1:]) - 1
+
+        if (source_slot, source_day) == (target_slot, target_day):
+            return  # No movement
+
+        self.swap_slots(source_day, source_slot, target_day, target_slot)
+        self.drag_source = None
+    
+    def swap_slots(self, day1, slot1, day2, slot2):
+        try:
+            conn = self.connect()
+            cur = conn.cursor()
+
+            # Get timeslot IDs
+            cur.execute("SELECT id FROM timeslots WHERE day = ? AND slot = ?", (day1, slot1))
+            ts1 = cur.fetchone()
+            cur.execute("SELECT id FROM timeslots WHERE day = ? AND slot = ?", (day2, slot2))
+            ts2 = cur.fetchone()
+            if not ts1 or not ts2:
+                messagebox.showerror("Error", "Time slot not found.")
+                return
+
+            ts1_id, ts2_id = ts1[0], ts2[0]
+
+            filter_type = self.view_type_var.get()
+            filter_value = self.view_value_var.get()
+
+            base_query = '''
+            SELECT gs.id, gs.group_id, gs.timeslot_id
+            FROM group_schedule gs
+            JOIN groups g ON gs.group_id = g.id
+            JOIN rooms r ON gs.room_id = r.id
+            JOIN timeslots ts ON gs.timeslot_id = ts.id
+            JOIN subjects s ON g.subject_id = s.id
+            JOIN teachers t ON g.teacher_id = t.id
+            '''
+
+            params = ()
+            if filter_type == "Group":
+                base_query += " WHERE g.id = ?"
+                params = (int(filter_value),)
+            elif filter_type == "Teacher":
+                base_query += " WHERE t.name = ?"
+                params = (filter_value,)
+            elif filter_type == "Room":
+                base_query += " WHERE r.name = ?"
+                params = (filter_value,)
+
+            cur.execute(base_query, params)
+            entries = cur.fetchall()
+
+            group_by_timeslot = {ts: (gs_id, group_id) for gs_id, group_id, ts in entries}
+
+            gs1 = group_by_timeslot.get(ts1_id)
+            gs2 = group_by_timeslot.get(ts2_id)
+
+            if gs1:
+                cur.execute("UPDATE group_schedule SET timeslot_id = ? WHERE id = ?", (ts2_id, gs1[0]))
+            if gs2:
+                cur.execute("UPDATE group_schedule SET timeslot_id = ? WHERE id = ?", (ts1_id, gs2[0]))
+
+            conn.commit()
+            conn.close()
+            self.load_schedule()
+        except Exception as e:
+            messagebox.showerror("Swap Error", str(e))
 
 if __name__ == "__main__":
     root = tk.Tk()
