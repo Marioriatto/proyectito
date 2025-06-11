@@ -62,6 +62,7 @@ class DatabaseEditor:
             subject_id INTEGER,
             teacher_id INTEGER,
             student_count INTEGER,
+            frecuency_count INTEGER,
             FOREIGN KEY(subject_id) REFERENCES subjects(id),
             FOREIGN KEY(teacher_id) REFERENCES teachers(id)
         );
@@ -133,7 +134,14 @@ class DatabaseEditor:
         BEGIN
             SELECT RAISE(ABORT, 'Duplicate subject.');
         END;
-
+                                  
+        CREATE TRIGGER IF NOT EXISTS trg_valid_frecuency_count
+        BEFORE INSERT ON groups
+        WHEN NEW.frecuency_count < 0
+        BEGIN
+            SELECT RAISE(ABORT, 'Invalid frecuency count.');
+        END;
+                                  
         CREATE TRIGGER IF NOT EXISTS trg_duplicate_group
         BEFORE INSERT ON groups
         WHEN EXISTS (
@@ -210,10 +218,12 @@ class DatabaseEditor:
         ttk.Label(frame, text="Subject").grid(row=0, column=0)
         ttk.Label(frame, text="Teacher").grid(row=0, column=1)
         ttk.Label(frame, text="Student Count").grid(row=0, column=2)
+        ttk.Label(frame, text="Frecuency").grid(row=0, column=3)
 
         subject_var = tk.StringVar()
         teacher_var = tk.StringVar()
         count_var = tk.StringVar()
+        frecuency_var = tk.StringVar()
 
         self.cursor.execute("SELECT id, name FROM subjects")
         subjects = self.cursor.fetchall()
@@ -229,17 +239,22 @@ class DatabaseEditor:
 
         count_entry = ttk.Entry(frame, textvariable=count_var)
         count_entry.grid(row=1, column=2)
+        frecuency_entry = ttk.Entry(frame, textvariable=frecuency_var)
+        frecuency_entry.grid(row=1, column=3)
 
         def add_group():
             try:
                 subject_id = subject_map[subject_var.get()]
                 teacher_id = teacher_map[teacher_var.get()]
                 count = int(count_var.get())
+                frecuency = int(frecuency_var.get())
                 if count <= 0:
                     raise ValueError("Student count must be positive.")
+                if frecuency <= 0:
+                    raise ValueError("Frecuency count must be positive. ")
                 self.cursor.execute(
-                    "INSERT INTO groups (subject_id, teacher_id, student_count) VALUES (?, ?, ?)",
-                    (subject_id, teacher_id, count))
+                    "INSERT INTO groups (subject_id, teacher_id, student_count, frecuency_count) VALUES (?, ?, ?, ?)",
+                    (subject_id, teacher_id, count, frecuency))
                 self.conn.commit()
                 refresh_table()
             except Exception as e:
@@ -255,17 +270,17 @@ class DatabaseEditor:
         ttk.Button(frame, text="Add", command=add_group).grid(row=2, column=0, pady=5)
         ttk.Button(frame, text="Delete", command=delete_selected).grid(row=2, column=1, pady=5)
 
-        table = ttk.Treeview(frame, columns=(0, 1, 2, 3), show="headings", height=15)
-        table.grid(row=3, column=0, columnspan=3)
+        table = ttk.Treeview(frame, columns=(0, 1, 2, 3, 4), show="headings", height=15)
+        table.grid(row= 4, column=0, columnspan=3)
 
-        for i, col in enumerate(["ID", "Subject ID", "Teacher ID", "Student Count"]):
+        for i, col in enumerate(["ID", "Subject ID", "Teacher ID", "Student Count", "Weekly Frecuency"]):
             table.heading(i, text=col)
-            table.column(i, width=120)
+            table.column(i, width=140)
 
         def refresh_table():
             for row in table.get_children():
                 table.delete(row)
-            self.cursor.execute("SELECT id, subject_id, teacher_id, student_count FROM groups")
+            self.cursor.execute("SELECT id, subject_id, teacher_id, student_count, frecuency_count FROM groups")
             for row in self.cursor.fetchall():
                 table.insert("", "end", values=row)
 
