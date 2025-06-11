@@ -21,7 +21,7 @@ class DatabaseEditor:
 
         ttk.Button(self.toolbar, text="New Database", command=self.create_database).pack(side=tk.LEFT, padx=5, pady=5)
         ttk.Button(self.toolbar, text="Open Database", command=self.open_database).pack(side=tk.LEFT, padx=5, pady=5)
-        ttk.Button(self.toolbar, text="Update View", command=self.populate_tabs).pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(self.toolbar, text="Refresh", command=self.populate_tabs).pack(side=tk.LEFT, padx=5, pady=5)
 
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True)

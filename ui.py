@@ -44,16 +44,16 @@ class ScheduleApp:
         self.control_frame.grid(row=1, column=0, sticky="ew")
         self.control_frame.columnconfigure((0, 1, 2), weight=1)
 
-        self.select_button = ttk.Button(self.control_frame, text="Select Database", command=self.select_database)
+        self.select_button = ttk.Button(self.control_frame, text="Load", command=self.select_database)
         self.select_button.grid(row=0, column=0, padx=10, pady=10)
 
         self.solve_button = ttk.Button(self.control_frame, text="Solve Schedule", command=self.solve_schedule, state="disabled")
         self.solve_button.grid(row=0, column=1, padx=10, pady=10)
 
-        self.edit_db_button = ttk.Button(self.control_frame, text="Edit Database", command=self.launch_editor)
+        self.edit_db_button = ttk.Button(self.control_frame, text="Edit", command=self.launch_editor)
         self.edit_db_button.grid(row=0, column=2, padx=10, pady=10)
 
-        self.refresh_button = ttk.Button(self.control_frame, text="Refresh View", command=self.load_schedule, state="disabled")
+        self.refresh_button = ttk.Button(self.control_frame, text="Refresh", command=self.load_schedule, state="disabled")
         self.refresh_button.grid(row=0, column=3, padx=10, pady=10)
 
         # selector dropdowns viewer
@@ -66,7 +66,7 @@ class ScheduleApp:
         self.value_selector = ttk.Combobox(self.control_frame, textvariable=self.view_value_var, state="readonly")
         self.value_selector.grid(row=0, column=5, padx=10)
 
-        self.apply_button = ttk.Button(self.control_frame, text="Apply View", command=self.load_schedule)
+        self.apply_button = ttk.Button(self.control_frame, text="Apply", command=self.load_schedule)
         self.apply_button.grid(row=0, column=6, padx=10)
 
         self.init_empty_grid()
