@@ -289,7 +289,7 @@ class DatabaseEditor:
     def init_timeslots_tab(self):
         frame = self.tabs["Timeslots"]
 
-        ttk.Label(frame, text="Timeslots (Day 0–4, Slot 0–5)").pack(pady=5)
+        ttk.Label(frame, text="Timeslots (5 Days, 6 Slots)").pack(pady=5)
         ttk.Button(frame, text="Generate Default Timeslots", command=self.generate_default_timeslots).pack(pady=5)
 
         table = ttk.Treeview(frame, columns=(0, 1, 2), show="headings", height=15)
