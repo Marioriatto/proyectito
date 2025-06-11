@@ -259,6 +259,14 @@ class DatabaseEditor:
                 refresh_table()
             except Exception as e:
                 messagebox.showerror("Insert Error", str(e))
+            """
+                    def update_selected():
+                        for sel in table.selection():
+                            rid = table.item(sel)["values"][0]
+                            self.cursor.execute("UPDATE FROM groups WHERE id=?", (rid,))
+                        self.conn.commit()
+                        refresh_table()
+            """
 
         def delete_selected():
             for sel in table.selection():
