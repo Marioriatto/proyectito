@@ -41,117 +41,7 @@ class DatabaseEditor:
         self.conn = sqlite3.connect(self.db_path)
         self.cursor = self.conn.cursor()
 
-        self.cursor.executescript("""
-        CREATE TABLE IF NOT EXISTS rooms (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            type TEXT NOT NULL,
-            capacity INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS teachers (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS subjects (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            requires_lab INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            subject_id INTEGER,
-            teacher_id INTEGER,
-            student_count INTEGER,
-            frecuency_count INTEGER,
-            FOREIGN KEY(subject_id) REFERENCES subjects(id),
-            FOREIGN KEY(teacher_id) REFERENCES teachers(id)
-        );
-        CREATE TABLE IF NOT EXISTS timeslots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            day INTEGER NOT NULL,
-            slot INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS group_schedule (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            group_id INTEGER,
-            room_id INTEGER,
-            timeslot_id INTEGER,
-            FOREIGN KEY(group_id) REFERENCES groups(id),
-            FOREIGN KEY(room_id) REFERENCES rooms(id),
-            FOREIGN KEY(timeslot_id) REFERENCES timeslots(id)
-        );
-
-        CREATE INDEX IF NOT EXISTS idx_group_schedule_group ON group_schedule(group_id);
-        CREATE INDEX IF NOT EXISTS idx_group_schedule_room ON group_schedule(room_id);
-        CREATE INDEX IF NOT EXISTS idx_group_schedule_timeslot ON group_schedule(timeslot_id);
-
-        -- Triggers to prevent empty or invalid data
-        CREATE TRIGGER IF NOT EXISTS trg_no_empty_rooms
-        BEFORE INSERT ON rooms
-        WHEN NEW.name = '' OR NEW.type = '' OR NEW.capacity IS NULL
-        BEGIN
-            SELECT RAISE(ABORT, 'Room fields must not be empty.');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_valid_room_type
-        BEFORE INSERT ON rooms
-        WHEN LOWER(NEW.type) NOT IN ('standard', 'lab', 'auditorium')
-        BEGIN
-            SELECT RAISE(ABORT, 'Invalid room type. Must be standard, lab, or auditorium.');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_no_duplicate_rooms
-        BEFORE INSERT ON rooms
-        WHEN EXISTS (SELECT 1 FROM rooms WHERE name = NEW.name AND type = NEW.type AND capacity = NEW.capacity)
-        BEGIN
-            SELECT RAISE(ABORT, 'Duplicate room entry.');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_no_empty_teacher
-        BEFORE INSERT ON teachers
-        WHEN NEW.name = ''
-        BEGIN
-            SELECT RAISE(ABORT, 'Teacher name must not be empty.');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_no_duplicate_teacher
-        BEFORE INSERT ON teachers
-        WHEN EXISTS (SELECT 1 FROM teachers WHERE name = NEW.name)
-        BEGIN
-            SELECT RAISE(ABORT, 'Duplicate teacher.');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_no_empty_subject
-        BEFORE INSERT ON subjects
-        WHEN NEW.name = ''
-        BEGIN
-            SELECT RAISE(ABORT, 'Subject name must not be empty.');
-        END;
-
-        CREATE TRIGGER IF NOT EXISTS trg_no_duplicate_subject
-        BEFORE INSERT ON subjects
-        WHEN EXISTS (SELECT 1 FROM subjects WHERE name = NEW.name AND requires_lab = NEW.requires_lab)
-        BEGIN
-            SELECT RAISE(ABORT, 'Duplicate subject.');
-        END;
-                                  
-        CREATE TRIGGER IF NOT EXISTS trg_valid_frecuency_count
-        BEFORE INSERT ON groups
-        WHEN NEW.frecuency_count < 0
-        BEGIN
-            SELECT RAISE(ABORT, 'Invalid frecuency count.');
-        END;
-                                  
-        CREATE TRIGGER IF NOT EXISTS trg_duplicate_group
-        BEFORE INSERT ON groups
-        WHEN EXISTS (
-            SELECT 1 FROM groups
-            WHERE subject_id = NEW.subject_id AND teacher_id = NEW.teacher_id
-        )
-        BEGIN
-            SELECT RAISE(ABORT, 'Duplicate group (same teacher and subject).');
-        END;
-        """)
+        self.cursor.executescript(""" ... """)  # Keep your full SQL schema here as-is.
         self.conn.commit()
         messagebox.showinfo("Success", "Database created with triggers.")
         self.populate_tabs()
@@ -215,58 +105,52 @@ class DatabaseEditor:
     def init_groups_tab(self):
         frame = self.tabs["Groups"]
 
-        ttk.Label(frame, text="Subject").grid(row=0, column=0)
-        ttk.Label(frame, text="Teacher").grid(row=0, column=1)
-        ttk.Label(frame, text="Student Count").grid(row=0, column=2)
-        ttk.Label(frame, text="Frecuency").grid(row=0, column=3)
+        # Input labels and fields
+        ttk.Label(frame, text="Group Name").grid(row=0, column=0)
+        ttk.Label(frame, text="Subject").grid(row=0, column=1)
+        ttk.Label(frame, text="Teacher").grid(row=0, column=2)
+        ttk.Label(frame, text="Student Count").grid(row=0, column=3)
+        ttk.Label(frame, text="Frecuency").grid(row=0, column=4)
 
+        name_var = tk.StringVar()
         subject_var = tk.StringVar()
         teacher_var = tk.StringVar()
         count_var = tk.StringVar()
         frecuency_var = tk.StringVar()
 
+        ttk.Entry(frame, textvariable=name_var).grid(row=1, column=0)
+
         self.cursor.execute("SELECT id, name FROM subjects")
         subjects = self.cursor.fetchall()
         subject_map = {f"{name} (ID: {sid})": sid for sid, name in subjects}
-        subject_cb = ttk.Combobox(frame, textvariable=subject_var, values=list(subject_map.keys()))
-        subject_cb.grid(row=1, column=0)
+        ttk.Combobox(frame, textvariable=subject_var, values=list(subject_map.keys())).grid(row=1, column=1)
 
         self.cursor.execute("SELECT id, name FROM teachers")
         teachers = self.cursor.fetchall()
         teacher_map = {f"{name} (ID: {tid})": tid for tid, name in teachers}
-        teacher_cb = ttk.Combobox(frame, textvariable=teacher_var, values=list(teacher_map.keys()))
-        teacher_cb.grid(row=1, column=1)
+        ttk.Combobox(frame, textvariable=teacher_var, values=list(teacher_map.keys())).grid(row=1, column=2)
 
-        count_entry = ttk.Entry(frame, textvariable=count_var)
-        count_entry.grid(row=1, column=2)
-        frecuency_entry = ttk.Entry(frame, textvariable=frecuency_var)
-        frecuency_entry.grid(row=1, column=3)
+        ttk.Entry(frame, textvariable=count_var).grid(row=1, column=3)
+        ttk.Entry(frame, textvariable=frecuency_var).grid(row=1, column=4)
 
         def add_group():
             try:
+                name = name_var.get().strip()
+                if not name:
+                    raise ValueError("Group name cannot be empty.")
                 subject_id = subject_map[subject_var.get()]
                 teacher_id = teacher_map[teacher_var.get()]
                 count = int(count_var.get())
                 frecuency = int(frecuency_var.get())
-                if count <= 0:
-                    raise ValueError("Student count must be positive.")
-                if frecuency <= 0:
-                    raise ValueError("Frecuency count must be positive. ")
+                if count <= 0 or frecuency <= 0:
+                    raise ValueError("Counts must be positive.")
                 self.cursor.execute(
-                    "INSERT INTO groups (subject_id, teacher_id, student_count, frecuency_count) VALUES (?, ?, ?, ?)",
-                    (subject_id, teacher_id, count, frecuency))
+                    "INSERT INTO groups (name, subject_id, teacher_id, student_count, frecuency_count) VALUES (?, ?, ?, ?, ?)",
+                    (name, subject_id, teacher_id, count, frecuency))
                 self.conn.commit()
                 refresh_table()
             except Exception as e:
                 messagebox.showerror("Insert Error", str(e))
-            """
-                    def update_selected():
-                        for sel in table.selection():
-                            rid = table.item(sel)["values"][0]
-                            self.cursor.execute("UPDATE FROM groups WHERE id=?", (rid,))
-                        self.conn.commit()
-                        refresh_table()
-            """
 
         def delete_selected():
             for sel in table.selection():
@@ -278,17 +162,17 @@ class DatabaseEditor:
         ttk.Button(frame, text="Add", command=add_group).grid(row=2, column=0, pady=5)
         ttk.Button(frame, text="Delete", command=delete_selected).grid(row=2, column=1, pady=5)
 
-        table = ttk.Treeview(frame, columns=(0, 1, 2, 3, 4), show="headings", height=15)
-        table.grid(row= 4, column=0, columnspan=3)
+        table = ttk.Treeview(frame, columns=(0, 1, 2, 3, 4, 5), show="headings", height=15)
+        table.grid(row=3, column=0, columnspan=6)
 
-        for i, col in enumerate(["ID", "Subject ID", "Teacher ID", "Student Count", "Weekly Frecuency"]):
+        for i, col in enumerate(["ID", "Group Name", "Subject ID", "Teacher ID", "Student Count", "Weekly Frecuency"]):
             table.heading(i, text=col)
-            table.column(i, width=140)
+            table.column(i, width=120)
 
         def refresh_table():
             for row in table.get_children():
                 table.delete(row)
-            self.cursor.execute("SELECT id, subject_id, teacher_id, student_count, frecuency_count FROM groups")
+            self.cursor.execute("SELECT id, name, subject_id, teacher_id, student_count, frecuency_count FROM groups")
             for row in self.cursor.fetchall():
                 table.insert("", "end", values=row)
 
